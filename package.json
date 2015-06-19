@@ -1,0 +1,16 @@
+{
+  "amd": {},
+  "volo": {
+    "baseUrl": "lib",
+    "dependencies": {
+      "domReady": "github:requirejs/domReady/2.0.1",
+      "webL10n": "github:sugarlabs/webL10n/master"
+    }
+  },
+  "devDependencies": {
+    "jasmine-core": "^2.3.4",
+    "karma": "^0.12.36",
+    "karma-firefox-launcher": "^0.1.6",
+    "karma-jasmine": "^0.3.5"
+  }
+}

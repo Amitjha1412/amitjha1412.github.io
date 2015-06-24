@@ -76,6 +76,8 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
     this.blocksToCollapse = [];
     // Arg blocks that need expanding after load.
     this.checkTwoArgBlocks = [];
+    // Arg clamp blocks that need expanding after load.
+    this.checkArgClampBlocks = [];
     // Clamp blocks that need expanding after load.
     this.clampBlocksToCheck = [];
 
@@ -328,6 +330,43 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
             return size;
         }
         */
+    }
+
+    // Adjust the slot sizes of arg clamps.
+    this.adjustArgClampBlock = function(argBlocksToCheck) {
+        if (argBlocksToCheck.length == 0) {
+            return;
+        }
+
+        var blk = argBlocksToCheck.pop();
+        var myBlock = this.blockList[blk];
+
+        // Which connection do we start with?
+        if (['doArg', 'calcArg'].indexOf(myBlock.name) != -1) {
+            ci = 2;
+        } else {
+            ci = 1;
+        }
+
+        // Get the current slot list.
+        var slotList = myBlock.argClampSlots;
+
+        var update = false;
+        // Determine the size of each argument.
+        for (i = 0; i < slotList.length; i++) {
+            var c = myBlock.connections[ci + i];
+            var size = 1; // Minimum size
+            if (c != null) {
+                size = Math.max(this.getBlockSize(c), 1);
+            }
+            if (slotList[i] != size) {
+                slotList[i] = size;
+                update = true;
+            }
+        }
+        if (update) {
+            myBlock.updateArgSlots(slotList);
+        }
     }
 
     // We also adjust the size of twoarg blocks. It is similar to how
@@ -631,15 +670,16 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
         if (c != null) {
             var cBlock = this.blockList[c];
         }
+
         // If it is an arg block, where is it coming from?
         if (myBlock.isArgBlock() && c != null) {
             // We care about twoarg (2arg) blocks with
             // connections to the first arg;
-            if (this.blockList[c].isTwoArgBlock()) {
+            if (this.blockList[c].isTwoArgBlock() || this.blockList[c].isArgClamp()) {
                 if (cBlock.connections[1] == thisBlock) {
                     this.checkTwoArgBlocks.push(c);
                 }
-            } else if (this.blockList[c].isArgBlock() && this.blockList[c].isExpandableBlock()) {
+            } else if (this.blockList[c].isArgBlock() && this.blockList[c].isExpandableBlock() || this.blockList[c].isArgClamp()) {
                 if (cBlock.connections[1] == thisBlock) {
                     this.checkTwoArgBlocks.push(c);
                 }
@@ -710,7 +750,7 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                 if (this.blockList[newBlock].isArgClamp()) {
                     // If it is an arg clamp, we may have to adjust
                     // the slot size.
-                    if ((this.blockList[newBlock].name == 'doArg' || this.blockList[newBlock].name == 'doCalc') && newConnection == 1) {
+                    if ((this.blockList[newBlock].name == 'doArg' || this.blockList[newBlock].name == 'calcArg') && newConnection == 1) {
                     } else if (['doArg', 'nameddoArg'].indexOf(this.blockList[newBlock].name) != -1 && newConnection == this.blockList[newBlock].connections.length - 1) {
                     } else {
                         // Get the size of the block we are inserting
@@ -721,7 +761,7 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                         var slotList = this.blockList[newBlock].argClampSlots;
 
                         // Which slot is this block in?
-                        if (['doArg', 'doCalc'].indexOf(this.blockList[newBlock].name) != -1) {
+                        if (['doArg', 'calcArg'].indexOf(this.blockList[newBlock].name) != -1) {
                             var si = newConnection - 2;
                         } else {
                             var si = newConnection - 1;
@@ -738,7 +778,7 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                 // (2) if it is an arg block, replace it; and
                 // (3) if it is a flow block, insert it into the flow.
                 if (this.blockList[newBlock].isArgClamp()) {
-                    if ((this.blockList[newBlock].name == 'doArg' || this.blockList[newBlock].name == 'doCalc') && newConnection == 1) {
+                    if ((this.blockList[newBlock].name == 'doArg' || this.blockList[newBlock].name == 'calcArg') && newConnection == 1) {
                         // If it is the action name then treat it like
                         // a standard replacement.
                         this.blockList[connection].connections[0] = null;
@@ -764,7 +804,7 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                         var slotList = this.blockList[newBlock].argClampSlots;
                         // Which slot is this block in?
                         var ci = this.blockList[newBlock].connections.indexOf(connection);
-                        if (['doArg', 'doCalc'].indexOf(this.blockList[newBlock].name) != -1) {
+                        if (['doArg', 'calcArg'].indexOf(this.blockList[newBlock].name) != -1) {
                             var si = ci - 2;
                         } else {
                             var si = ci - 1;
@@ -794,8 +834,8 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                                 this.blockList[newBlock].connections[i] = this.blockList[newBlock].connections[i - 1];
                             }
                         }
-
-                        // The new block is added below the current connection...
+                        // The new block is added below the current
+                        // connection...
                         newConnection += 1;
                         // Set its slot size too.
                         slotList[si + 1] = size;
@@ -821,7 +861,8 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
         }
 
         // If it is an arg block, where is it coming from?
-        if (myBlock.isArgBlock() && newBlock != null) {
+        // FIXME: improve mechanism for testing block types.
+        if ((myBlock.isArgBlock() || myBlock.name == 'calcArg' || myBlock.name == 'namedcalcArg') && newBlock != null) {
             // We care about twoarg blocks with connections to the
             // first arg;
             if (this.blockList[newBlock].isTwoArgBlock()) {
@@ -1433,11 +1474,9 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                 value = this.findUniqueActionName(_('action'));
                 console.log('renaming action block to ' + value);
                 if (value != _('action')) {
-                    // FIXME: if there is a return block in the stack,
-                    // make a new named calc block. If there are args,
-                    // make new nameddoArg or namedcalcArg blocks.
                     console.log('calling newNameddoBlock with value ' + value);
-                    this.newNameddoBlock(value);
+                    // TODO: are there return or arg blocks?
+                    this.newNameddoBlock(value, false, false);
                     this.palettes.updatePalettes();
                 }
             }
@@ -1652,6 +1691,7 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
             return;
         }
         // Update the blocks, do->oldName should be do->newName
+        // Named dos are modified in a separate function below.
         for (var blk = 0; blk < this.blockList.length; blk++) {
             var myBlock = this.blockList[blk];
             var blkParent = this.blockList[myBlock.connections[0]];
@@ -1769,67 +1809,70 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
         regeneratePalette(this.palettes.dict['actions']);
     }
 
-    this.newNameddoBlock = function(name) {
-        if ('myDo_' + name in this.protoBlockDict) {
+    this.removeNamedoEntries = function(name) {
+        // Delete any old palette entries.
+        console.log('removing old palette entries for ' + name);
+        delete this.protoBlockDict['myDo_' + name];
+        delete this.protoBlockDict['myCalc_' + name];
+        delete this.protoBlockDict['myDoArg_' + name];
+        delete this.protoBlockDict['myCalcArg_' + name];
+    }
+
+    this.newNameddoBlock = function(name, hasReturn, hasArgs) {
+        // Depending upon the form of the associated action block, we
+        // want to add a named do, a named calc, a named do w/args, or
+        // a named calc w/args.
+        console.log(name + ' ' + hasReturn + ' ' + hasArgs);
+
+        if (name == _('action')) {
+            // 'action' already has its associated palette entries.
             return;
         }
-        var myDoBlock = new ProtoBlock('nameddo');
-        this.protoBlockDict['myDo_' + name] = myDoBlock;
-        myDoBlock.palette = this.palettes.dict['actions'];
-        myDoBlock.defaults.push(name);
-        myDoBlock.staticLabels.push(name);
-        myDoBlock.zeroArgBlock();
-        if (name == 'action') {
-            return;
+
+        if (hasReturn && hasArgs) {
+            this.newNamedcalcArgBlock(name);
+        } else if (!hasReturn && hasArgs) {
+            this.newNameddoArgBlock(name);
+        } else if (hasReturn && !hasArgs) {
+            this.newNamedcalcBlock(name);
+        } else {
+            var myDoBlock = new ProtoBlock('nameddo');
+            this.protoBlockDict['myDo_' + name] = myDoBlock;
+            myDoBlock.palette = this.palettes.dict['actions'];
+            myDoBlock.defaults.push(name);
+            myDoBlock.staticLabels.push(name);
+            myDoBlock.zeroArgBlock();
+            myDoBlock.palette.add(myDoBlock);
         }
-        myDoBlock.palette.add(myDoBlock);
     }
 
     this.newNamedcalcBlock = function(name) {
-        if ('myCalc_' + name in this.protoBlockDict) {
-            return;
-        }
         var myCalcBlock = new ProtoBlock('namedcalc');
         this.protoBlockDict['myCalc_' + name] = myCalcBlock;
         myCalcBlock.palette = this.palettes.dict['actions'];
         myCalcBlock.defaults.push(name);
         myCalcBlock.staticLabels.push(name);
         myCalcBlock.zeroArgBlock();
-        if (name == 'action') {
-            return;
-        }
         myCalcBlock.palette.add(myCalcBlock);
     }
 
     this.newNameddoArgBlock = function(name) {
-        if ('myDoArg_' + name in this.protoBlockDict) {
-            return;
-        }
         var myDoArgBlock = new ProtoBlock('nameddoArg');
         this.protoBlockDict['myDoArg_' + name] = myDoArgBlock;
         myDoArgBlock.palette = this.palettes.dict['actions'];
         myDoArgBlock.defaults.push(name);
         myDoArgBlock.staticLabels.push(name);
         myDoArgBlock.zeroArgBlock();
-        if (name == 'action') {
-            return;
-        }
         myDoArgBlock.palette.add(myDoArgBlock);
     }
 
     this.newNamedcalcArgBlock = function(name) {
-        if ('myCalcArg_' + name in this.protoBlockDict) {
-            return;
-        }
         var myCalcArgBlock = new ProtoBlock('namedcalcArg');
         this.protoBlockDict['myCalcArg_' + name] = myCalcArgBlock;
         myCalcArgBlock.palette = this.palettes.dict['actions'];
         myCalcArgBlock.defaults.push(name);
         myCalcArgBlock.staticLabels.push(name);
         myCalcArgBlock.zeroArgBlock();
-        if (name == 'action') {
-            return;
-        }
         myCalcArgBlock.palette.add(myCalcArgBlock);
     }
 
@@ -2034,8 +2077,11 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
             }
         }
 
-        // We need to track two-arg blocks incase they need expanding.
+        // We need to track two-arg blocks in case they need expanding.
         this.checkTwoArgBlocks = [];
+
+        // And arg clamp blocks in case they need expanding.
+        this.checkArgClampBlocks = [];
 
         // Don't make duplicate action names.
         // Add a palette entry for any new storein blocks.
@@ -2164,10 +2210,11 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                 blkData[1][1] = {'value': name};
             }
 
-            // add a new nameddo block to the palette...
-            // FIXME: Do we add calc, nameddoArg, namedcalcArg blocks?
-            this.newNameddoBlock(name);
+            // TODO: are there return or arg blocks?
+            console.log('calling newNameddoBlock with name ' + name);
+            this.newNameddoBlock(name, false, false);
             updatePalettes = true;
+
             // and any do blocks
             for (var d in doNames) {
                 var thisBlkData = blockObjs[d];
@@ -2325,6 +2372,7 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                                 me.blockList[thisBlock].connections[i] = args[1][i];
                             }
                         }
+                        me.checkArgClampBlocks.push(thisBlock);
                     }
                     this.makeNewBlockWithConnections('doArg', blockOffset, blkData[4], postProcess, [thisBlock, blkData[4]]);
                     break;
@@ -2347,6 +2395,7 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                                 me.blockList[thisBlock].connections[i] = args[2][i];
                             }
                         }
+                        me.checkArgClampBlocks.push(thisBlock);
                     }
                     this.makeNewBlockWithConnections('nameddoArg', blockOffset, blkData[4], postProcess, [thisBlock, value, blkData[4]]);
                     break;
@@ -2366,6 +2415,7 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                                 me.blockList[thisBlock].connections[i] = args[1][i];
                             }
                         }
+                        me.checkArgClampBlocks.push(thisBlock);
                     }
                     this.makeNewBlockWithConnections('calcArg', blockOffset, blkData[4], postProcess, [thisBlock, blkData[4]]);
                     break;
@@ -2388,6 +2438,7 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
                                 me.blockList[thisBlock].connections[i] = args[2][i];
                             }
                         }
+                        me.checkArgClampBlocks.push(thisBlock);
                     }
                     this.makeNewBlockWithConnections('namedcalcArg', blockOffset, blkData[4], postProcess, [thisBlock, value, blkData[4]]);
                     break;
@@ -2584,6 +2635,17 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
         }
 
         this.updateBlockPositions();
+
+        if (this.checkArgClampBlocks.length > 0) {
+            // We make multiple passes because we need to account for nesting.
+            // FIXME: needs to be interwoven with TwoArgBlocks check.
+            for (i = 0; i < this.checkArgClampBlocks.length; i++) {
+                for (b = 0; b < this.checkArgClampBlocks.length; b++) {
+                    this.adjustArgClampBlock([this.checkArgClampBlocks[b]]);
+                }
+            }
+        }
+
         if (this.checkTwoArgBlocks.length > 0) {
             // We make multiple passes because we need to account for nesting.
             for (i = 0; i < this.checkTwoArgBlocks.length; i++) {
@@ -2613,6 +2675,42 @@ function Blocks(canvas, stage, refreshCanvas, trashcan, updateStage) {
             }
         }
         this.refreshCanvas();
+    }
+
+    this.actionHasReturn = function (blk) {
+        // Look for a return block in an action stack.
+        if (this.blockList[blk].name != 'action') {
+            return false;
+        }
+        var loopcounter = 0;
+        var c = this.blockList[blk].connections[2];
+        while (c != null) {
+            if (this.blockList[c].name == 'return') {
+                return true;
+            }
+            loopcounter += 1;
+            if (loopcounter > this.blockList.length) {
+                console.log('inifinite loop? encountered while testing for return.');
+                return false;
+            }
+            var last = this.blockList[c].connections.length - 1;
+            c = this.blockList[c].connections[last];
+        }
+        return false;
+    }
+
+    this.actionHasArgs = function (blk) {
+        // Look for an arg blocks in an action stack.
+        if (this.blockList[blk].name != 'action') {
+            return false;
+        }
+        this.findDragGroup(blk);
+        for (var b = 0; b < this.dragGroup.length; b++) {
+            if (this.blockList[this.dragGroup[b]].name == 'arg' || this.blockList[this.dragGroup[b]].name == 'namedarg') {
+                return true;
+            }
+        }
+        return false;
     }
 
     this.raiseStackToTop = function (blk) {
